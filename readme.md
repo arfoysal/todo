@@ -18,7 +18,7 @@ A beautiful, advanced task management application built entirely in a single HTM
 ## 🚀 How to Use
 
 ### Option 1: Use it instantly (GitHub Pages)
-*(Note: Once you activate GitHub Pages, add your live link here: `[Live Demo](https://arfoysal.github.io/todo/)`)*
+*live link here: [Live Demo](https://arfoysal.github.io/todo/)
 
 ### Option 2: Run it locally
 Since the entire application is contained within `index.html`, you can simply download the file and double-click it to open it in any modern web browser. No local server required!
