@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced To-Do Workspace</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0f172a',
+                        darkGlass: 'rgba(30, 41, 59, 0.7)',
+                        darkPanel: 'rgba(30, 41, 59, 0.9)'
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; overflow: hidden; transition: background-color 0.3s; }
+        
+        /* Dynamic Backgrounds */
+        body.light { background: #f4f7f6; }
+        body.dark { background: #0f172a; }
+        
+        .bg-mesh {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: -1;
+            filter: blur(120px) opacity(0.2); animation: pulse 20s ease-in-out infinite alternate;
+        }
+        .light .bg-mesh { background: radial-gradient(at 0% 0%, #4338ca 0, transparent 50%), radial-gradient(at 100% 100%, #be185d 0, transparent 50%); }
+        .dark .bg-mesh { background: radial-gradient(at 0% 0%, #3730a3 0, transparent 50%), radial-gradient(at 100% 100%, #1e1b4b 0, transparent 50%); opacity: 0.4; filter: blur(150px); }
+
+        @keyframes pulse { 0% { transform: scale(1); } 100% { transform: scale(1.1); } }
+
+        /* Glassmorphism */
+        .glass {
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            transition: all 0.3s ease;
+        }
+        .light .glass { background: rgba(255, 255, 255, 0.6); border: 1px solid rgba(255, 255, 255, 0.5); }
+        .dark .glass { background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); }
+
+        .glass-panel {
+            backdrop-filter: blur(16px);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .light .glass-panel { background: rgba(255, 255, 255, 0.85); border: 1px solid rgba(255, 255, 255, 0.6); box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+        .dark .glass-panel { background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+
+        /* Task Items & Dragging */
+        .task-item { position: relative; transition: transform 0.2s, box-shadow 0.2s; }
+        .task-item.dragging { opacity: 0.4; transform: scale(0.98); z-index: 50; }
+        .task-item.drag-over-top { border-top: 3px solid #6366f1; margin-top: 4px; }
+        .task-item.drag-over-bottom { border-bottom: 3px solid #6366f1; margin-bottom: 4px; }
+        .task-item.drag-over-middle { border: 2px dashed #6366f1; background: rgba(99, 102, 241, 0.05); transform: scale(1.02); }
+        
+        .subtask-item { position: relative; transition: all 0.2s; }
+        .subtask-item.dragging { opacity: 0.5; background: rgba(99, 102, 241, 0.1); border-radius: 6px; padding: 4px; }
+        
+        /* Custom Checkbox */
+        .custom-checkbox {
+            appearance: none; width: 1.25rem; height: 1.25rem; border: 2px solid #cbd5e1; border-radius: 6px;
+            cursor: pointer; position: relative; outline: none; transition: all 0.2s ease;
+        }
+        .dark .custom-checkbox { border-color: #475569; }
+        .custom-checkbox:checked { background-color: currentColor; border-color: currentColor; }
+        .custom-checkbox:checked::after {
+            content: '\f00c'; font-family: 'Font Awesome 6 Free'; font-weight: 900; color: white;
+            font-size: 0.65rem; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.3); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.5); }
+
+        /* Toast Notifications */
+        .toast-enter { transform: translateY(100%); opacity: 0; }
+        .toast-enter-active { transform: translateY(0); opacity: 1; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .toast-exit { transform: translateY(0); opacity: 1; }
+        .toast-exit-active { transform: translateY(100%); opacity: 0; transition: all 0.3s ease-in; }
+
+        /* Task Actions Hover */
+        .task-actions { opacity: 0; transition: opacity 0.2s; }
+        .task-item:hover .task-actions { opacity: 1; }
+        @media (max-width: 768px) { .task-actions { opacity: 1; } } /* Always show on mobile */
+    </style>
+</head>
+<body class="flex items-center justify-center p-2 sm:p-4 md:p-8 text-gray-800 dark:text-gray-200 overflow-hidden w-full h-screen box-border">
+    <div class="bg-mesh"></div>
+
+    <!-- Main App Container -->
+    <div class="glass w-full max-w-5xl rounded-[2rem] shadow-2xl flex flex-col h-[95vh] max-h-[950px] relative overflow-hidden box-border" id="app-container">
+        
+        <!-- Header -->
+        <header class="p-6 md:p-8 pb-4 border-b border-gray-200/50 dark:border-gray-700/50 flex-shrink-0">
+            <div class="flex justify-between items-start mb-6">
+                <div>
+                    <h1 class="text-3xl md:text-4xl font-bold tracking-tight text-gray-900 dark:text-white mb-1">Workspace</h1>
+                    <p class="text-gray-500 dark:text-gray-400 font-medium" id="task-counter">Loading tasks...</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button id="theme-toggle" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-indigo-500 transition-colors">
+                        <i class="fas fa-moon dark:hidden"></i>
+                        <i class="fas fa-sun hidden dark:block"></i>
+                    </button>
+                    <button id="import-btn" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-green-500 transition-colors" title="Import Backup (JSON)">
+                        <i class="fas fa-file-import"></i>
+                    </button>
+                    <button id="export-btn" class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-gray-600 dark:text-gray-300 hover:text-blue-500 transition-colors" title="Export Backup (JSON)">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Global Tools: Search & Sort -->
+            <div class="flex flex-col md:flex-row gap-3 mb-4">
+                <div class="relative flex-1">
+                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <input type="text" id="search-input" placeholder="Search tasks..." class="w-full pl-11 pr-4 py-2.5 rounded-xl glass-panel border-none outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 dark:text-white placeholder-gray-400 text-sm transition-all">
+                </div>
+                <div class="flex gap-2 overflow-x-auto pb-1 md:pb-0">
+                    <select id="label-filter" class="glass-panel px-3 py-2.5 rounded-xl border-none outline-none text-sm text-gray-700 dark:text-gray-300 cursor-pointer shrink-0">
+                        <option value="">All Labels</option>
+                    </select>
+                    <select id="sort-select" class="glass-panel px-3 py-2.5 rounded-xl border-none outline-none text-sm text-gray-700 dark:text-gray-300 cursor-pointer shrink-0">
+                        <option value="manual">Sort: Custom Order</option>
+                        <option value="dueDate">Sort: Due Date</option>
+                        <option value="createdAt">Sort: Recently Added</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Add Task Form -->
+            <form id="add-task-form" class="glass-panel rounded-2xl p-4 transition-all focus-within:ring-2 focus-within:ring-indigo-400 flex flex-col gap-3 z-10">
+                <div class="flex flex-1 items-center w-full min-w-0">
+                    <button type="submit" class="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center shrink-0 mr-3">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <input type="text" id="new-task-input" placeholder="What needs to be done?" class="flex-1 bg-transparent border-none py-2 px-1 outline-none text-gray-800 dark:text-white placeholder-gray-400 font-medium sm:text-lg min-w-0" required>
+                </div>
+                
+                <div class="flex flex-wrap items-center gap-4 sm:gap-6 border-t border-gray-200 dark:border-gray-700 pt-3 pl-1 sm:pl-12">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-semibold text-gray-500 uppercase">Date</span>
+                        <input type="date" id="new-task-date" class="bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 outline-none text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-semibold text-gray-500 uppercase">Label</span>
+                        <select id="new-task-label" class="bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 outline-none text-sm text-gray-600 dark:text-gray-300 cursor-pointer min-w-[120px]">
+                            <option value="">No Label</option>
+                            <option value="__add_new__" class="text-indigo-600 dark:text-indigo-400 font-bold">+ New</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-semibold text-gray-500 uppercase">Color</span>
+                        <div id="color-picker-container" class="flex gap-2 flex-wrap p-1"></div>
+                    </div>
+                </div>
+            </form>
+        </header>
+
+        <!-- Filters & Task List Area -->
+        <div class="flex-1 flex flex-col px-6 md:px-8 pb-8 overflow-hidden pt-4">
+            <!-- List Container -->
+            <div class="flex-1 overflow-y-auto pr-2 relative" id="task-list">
+                <div id="loading-indicator" class="absolute inset-0 flex justify-center items-center text-indigo-400 bg-white/10 backdrop-blur-sm z-10 rounded-xl">
+                    <i class="fas fa-circle-notch fa-spin text-4xl"></i>
+                </div>
+                <ul id="tasks-container" class="space-y-3 pb-20 relative z-10"></ul>
+                <div id="empty-state" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center text-center opacity-0 transition-opacity z-0 pointer-events-none w-full">
+                    <div class="w-24 h-24 mb-4 mx-auto rounded-full bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-300 shadow-sm">
+                        <i class="fas fa-leaf text-4xl"></i>
+                    </div>
+                    <h3 class="text-xl font-semibold text-gray-700 dark:text-gray-200 mb-1">Nothing here yet</h3>
+                    <p class="text-gray-500 text-sm">Add a task above to get started.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Task Modal -->
+    <div id="edit-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-md hidden items-center justify-center z-50 p-4 opacity-0 transition-all duration-300">
+        <div class="glass-panel bg-white dark:bg-gray-800 rounded-3xl p-6 md:p-8 w-full max-w-lg transform scale-95 opacity-0 transition-all duration-300 shadow-2xl flex flex-col max-h-[90vh]" id="edit-modal-content">
+            <div class="flex justify-between items-center mb-6 shrink-0">
+                <h3 class="text-2xl font-bold text-gray-900 dark:text-white">Edit Task</h3>
+                <button type="button" id="close-edit-btn" class="text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors w-8 h-8 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-center">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="overflow-y-auto pr-2 space-y-5 flex-1 custom-scrollbar">
+                <div>
+                    <input type="text" id="edit-task-input" class="w-full border-b-2 border-gray-200 dark:border-gray-600 py-2 outline-none focus:border-indigo-500 bg-transparent text-gray-900 dark:text-white text-xl font-medium" placeholder="Task name">
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Due Date</label>
+                        <input type="date" id="edit-task-date" class="w-full p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 outline-none text-gray-700 dark:text-gray-200 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Label</label>
+                        <select id="edit-task-label" class="w-full p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 outline-none text-gray-700 dark:text-gray-200 text-sm cursor-pointer">
+                            <option value="">No Label</option>
+                            <option value="__add_new__" class="text-indigo-600 font-bold">+ New...</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Color</label>
+                    <div class="flex flex-wrap gap-2 p-1" id="edit-color-picker-container"></div>
+                </div>
+
+                <!-- Subtasks Section -->
+                <div class="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3"><i class="fas fa-list-ul mr-2 text-indigo-500"></i>Subtasks</label>
+                    <ul id="edit-subtasks-list" class="space-y-2 mb-3"></ul>
+                    <div class="flex gap-2">
+                        <input type="text" id="new-subtask-input" placeholder="Add a subtask..." class="flex-1 bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-indigo-500 dark:text-white">
+                        <button type="button" id="add-subtask-btn" class="px-3 py-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-200 dark:hover:bg-indigo-800 text-sm font-medium"><i class="fas fa-plus"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 shrink-0">
+                <button type="button" id="cancel-edit-btn" class="px-5 py-2.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all">Cancel</button>
+                <button type="button" id="save-edit-btn" class="px-6 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Label Modal -->
+    <div id="add-label-modal" class="fixed inset-0 bg-gray-900/50 backdrop-blur-sm hidden items-center justify-center z-[60] p-4 opacity-0 transition-all duration-300">
+        <div class="glass-panel bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-sm transform scale-95 opacity-0 transition-all duration-300" id="add-label-modal-content">
+            <h3 class="text-lg font-bold text-gray-900 dark:text-white mb-4">New Label</h3>
+            <input type="text" id="new-label-input" class="w-full border-b-2 border-gray-200 dark:border-gray-600 py-2 outline-none focus:border-indigo-500 bg-transparent text-gray-800 dark:text-white mb-6" placeholder="e.g. Work, Urgent">
+            <div class="flex justify-end gap-2">
+                <button type="button" id="cancel-label-btn" class="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">Cancel</button>
+                <button type="button" id="save-label-btn" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Delete Modal -->
+    <div id="confirm-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-md hidden items-center justify-center z-[70] p-4 opacity-0 transition-all duration-300">
+        <div class="glass-panel bg-white dark:bg-gray-800 rounded-3xl p-6 md:p-8 w-full max-w-sm transform scale-95 opacity-0 transition-all duration-300 shadow-2xl flex flex-col text-center" id="confirm-modal-content">
+            <div class="w-16 h-16 bg-red-100 dark:bg-red-900/50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl shadow-inner">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-2">Delete Task?</h3>
+            <p class="text-gray-500 dark:text-gray-400 mb-6 text-sm">This action cannot be undone. Are you sure you want to remove this task?</p>
+            <div class="flex justify-center gap-3">
+                <button type="button" id="cancel-delete-btn" class="px-5 py-2.5 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all w-full">Cancel</button>
+                <button type="button" id="confirm-delete-btn" class="px-5 py-2.5 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-xl transition-all shadow-md w-full">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-6 right-6 z-[80] flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
+
+    <!-- Hidden Input for File Import -->
+    <input type="file" id="file-import" class="hidden" accept=".json">
+
+    <!-- Local Storage Logic -->
+    <script>
+        const STORAGE_KEY = 'advanced_todo_local_data';
+        
+        // Core State
+        let localTasks = [];
+        let localLabels = [];
+        let currentSort = 'manual'; // manual, dueDate, createdAt
+        let searchQuery = '';
+        let currentLabelFilter = '';
+        let editingTask = null; 
+        let isDarkMode = false;
+
+        const PALETTE = ['#94a3b8', '#f87171', '#fb923c', '#fbbf24', '#34d399', '#60a5fa', '#c084fc', '#f472b6'];
+        let selectedAddColor = PALETTE[0];
+        
+        // DOM Elements
+        const DOM = {
+            appContainer: document.getElementById('app-container'),
+            themeToggle: document.getElementById('theme-toggle'),
+            importBtn: document.getElementById('import-btn'),
+            exportBtn: document.getElementById('export-btn'),
+            fileImport: document.getElementById('file-import'),
+            
+            searchInput: document.getElementById('search-input'),
+            sortSelect: document.getElementById('sort-select'),
+            labelFilter: document.getElementById('label-filter'),
+            
+            addForm: document.getElementById('add-task-form'),
+            addInput: document.getElementById('new-task-input'),
+            addDate: document.getElementById('new-task-date'),
+            addLabel: document.getElementById('new-task-label'),
+            colorPicker: document.getElementById('color-picker-container'),
+            
+            taskList: document.getElementById('tasks-container'),
+            loading: document.getElementById('loading-indicator'),
+            emptyState: document.getElementById('empty-state'),
+            taskCounter: document.getElementById('task-counter'),
+            
+            editModal: document.getElementById('edit-modal'),
+            editContent: document.getElementById('edit-modal-content'),
+            editInput: document.getElementById('edit-task-input'),
+            editDate: document.getElementById('edit-task-date'),
+            editLabel: document.getElementById('edit-task-label'),
+            editColorPicker: document.getElementById('edit-color-picker-container'),
+            editSubtasks: document.getElementById('edit-subtasks-list'),
+            newSubtaskInput: document.getElementById('new-subtask-input'),
+            addSubtaskBtn: document.getElementById('add-subtask-btn'),
+            saveEditBtn: document.getElementById('save-edit-btn'),
+            closeEditBtn: document.getElementById('close-edit-btn'),
+            cancelEditBtn: document.getElementById('cancel-edit-btn'),
+            
+            labelModal: document.getElementById('add-label-modal'),
+            labelContent: document.getElementById('add-label-modal-content'),
+            newLabelInput: document.getElementById('new-label-input'),
+            saveLabelBtn: document.getElementById('save-label-btn'),
+            cancelLabelBtn: document.getElementById('cancel-label-btn')
+        };
+
+        function generateId() {
+            return 'id_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        }
+
+        // Data Sync
+        function loadData() {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                try {
+                    const data = JSON.parse(stored);
+                    localTasks = data.tasks || [];
+                    localLabels = data.labels || [];
+                } catch(e) { console.error("Error parsing local data", e); }
+            }
+            updateLabelDropdowns();
+            renderTasks();
+        }
+
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                tasks: localTasks,
+                labels: localLabels
+            }));
+        }
+
+        // Initialize App
+        function start() {
+            setupTheme();
+            setupColorPickers();
+            setupEventListeners();
+            loadData();
+        }
+
+        // Theme
+        function setupTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                isDarkMode = savedTheme === 'dark';
+            } else {
+                isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            }
+            applyTheme();
+            DOM.themeToggle.onclick = () => { 
+                isDarkMode = !isDarkMode; 
+                localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+                applyTheme(); 
+            };
+        }
+        function applyTheme() {
+            if (isDarkMode) { document.documentElement.classList.add('dark'); document.documentElement.classList.remove('light'); }
+            else { document.documentElement.classList.remove('dark'); document.documentElement.classList.add('light'); }
+        }
+
+        // UI Setup
+        function setupColorPickers() {
+            const createPicker = (container, activeColor, onSelect) => {
+                container.innerHTML = '';
+                PALETTE.forEach(c => {
+                    const btn = document.createElement('div');
+                    btn.className = `w-5 h-5 rounded-full cursor-pointer transition-all duration-200 ${c === activeColor ? 'ring-4 ring-offset-2 ring-indigo-500 dark:ring-indigo-400 scale-125 shadow-md' : 'hover:scale-110'}`;
+                    btn.style.backgroundColor = c;
+                    btn.onclick = () => {
+                        Array.from(container.children).forEach(el => el.className = `w-5 h-5 rounded-full cursor-pointer transition-all duration-200 hover:scale-110`);
+                        btn.className = `w-5 h-5 rounded-full cursor-pointer transition-all duration-200 ring-4 ring-offset-2 ring-indigo-500 dark:ring-indigo-400 scale-125 shadow-md`;
+                        onSelect(c);
+                    };
+                    container.appendChild(btn);
+                });
+            };
+            createPicker(DOM.colorPicker, selectedAddColor, c => selectedAddColor = c);
+        }
+
+        function updateLabelDropdowns() {
+            const makeOpts = (val, isFilter=false) => {
+                let html = isFilter ? '<option value="">All Labels</option>' : '<option value="">No Label</option>';
+                localLabels.sort((a,b)=>a.name.localeCompare(b.name)).forEach(l => html += `<option value="${l.name}">${l.name}</option>`);
+                if(!isFilter) html += '<option value="__add_new__" class="text-indigo-500 font-bold">+ New...</option>';
+                return html;
+            };
+            const vAdd = DOM.addLabel.value;
+            const vEdit = DOM.editLabel.value;
+            const vFilter = DOM.labelFilter.value;
+            DOM.addLabel.innerHTML = makeOpts(vAdd, false);
+            DOM.editLabel.innerHTML = makeOpts(vEdit, false);
+            DOM.labelFilter.innerHTML = makeOpts(vFilter, true);
+            if (localLabels.some(l => l.name === vAdd)) DOM.addLabel.value = vAdd;
+            if (localLabels.some(l => l.name === vEdit)) DOM.editLabel.value = vEdit;
+            if (localLabels.some(l => l.name === vFilter)) DOM.labelFilter.value = vFilter;
+        }
+
+        // Rendering & Sorting
+        function renderTasks() {
+            DOM.loading.style.display = 'none';
+            let filtered = localTasks.filter(t => !searchQuery || t.text.toLowerCase().includes(searchQuery.toLowerCase()));
+            
+            if (currentLabelFilter) {
+                filtered = filtered.filter(t => t.label === currentLabelFilter);
+            }
+            
+            filtered.sort((a, b) => {
+                if (a.completed !== b.completed) return a.completed ? 1 : -1;
+                if (currentSort === 'manual') return (a.order || 0) - (b.order || 0);
+                if (currentSort === 'dueDate') {
+                    if (!a.dueDate) return 1;
+                    if (!b.dueDate) return -1;
+                    return a.dueDate - b.dueDate;
+                }
+                if (currentSort === 'createdAt') return (b.createdAt || 0) - (a.createdAt || 0);
+                return 0;
+            });
+
+            DOM.taskList.innerHTML = '';
+            
+            const completedCount = localTasks.filter(t => t.completed).length;
+            DOM.taskCounter.textContent = `${localTasks.length} tasks • ${completedCount} completed`;
+
+            if (filtered.length === 0) {
+                DOM.emptyState.classList.remove('hidden');
+                DOM.emptyState.classList.add('flex');
+                setTimeout(() => DOM.emptyState.style.opacity = '1', 10);
+            } else {
+                DOM.emptyState.classList.add('hidden');
+                DOM.emptyState.classList.remove('flex');
+                DOM.emptyState.style.opacity = '0';
+                
+                filtered.forEach(task => {
+                    const li = document.createElement('li');
+                    const borderColor = task.color || '#94a3b8';
+                    li.className = `task-item glass-panel p-4 rounded-2xl flex flex-col gap-2 transition-all hover:-translate-y-0.5 hover:shadow-lg border-l-4 ${task.completed ? 'opacity-60 grayscale-[50%]' : ''}`;
+                    li.style.borderLeftColor = borderColor;
+                    li.draggable = (currentSort === 'manual' && !searchQuery && !currentLabelFilter);
+                    li.dataset.id = task.id;
+                    li.dataset.type = 'task';
+                    
+                    const nowLocal = new Date();
+                    nowLocal.setHours(0,0,0,0);
+                    let isOverdue = false;
+                    if(task.dueDate) {
+                        const due = new Date(task.dueDate);
+                        due.setHours(0,0,0,0);
+                        if(due < nowLocal && !task.completed) isOverdue = true;
+                    }
+
+                    const dateStr = task.dueDate ? `<span class="text-xs ${isOverdue ? 'text-red-500 font-bold' : 'text-gray-500 dark:text-gray-400'}"><i class="far fa-calendar mr-1"></i>${new Date(task.dueDate).toLocaleDateString()}</span>` : '';
+                    const labelStr = task.label ? `<span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700/50">${task.label}</span>` : '';
+                    
+                    const subCount = task.subtasks ? task.subtasks.length : 0;
+                    const subDone = task.subtasks ? task.subtasks.filter(s => s.completed).length : 0;
+                    const subStr = subCount > 0 ? `<span class="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-indigo-500" onclick="document.getElementById('sub-${task.id}').classList.toggle('hidden')"><i class="fas fa-list-ul mr-1"></i>${subDone}/${subCount}</span>` : '';
+
+                    li.innerHTML = `
+                        <div class="flex items-start gap-3 w-full">
+                            ${li.draggable ? `<div class="cursor-grab text-gray-400 hover:text-indigo-500 mt-1 shrink-0" title="Drag to reorder or make subtask"><i class="fas fa-grip-vertical"></i></div>` : ''}
+                            <input type="checkbox" class="custom-checkbox shrink-0 mt-1" style="color: ${borderColor}" ${task.completed ? 'checked' : ''} onchange="toggleTask('${task.id}', this.checked)">
+                            <div class="flex-1 min-w-0">
+                                <p class="text-[1.05rem] font-medium ${task.completed ? 'line-through text-gray-400' : 'text-gray-800 dark:text-white'} cursor-pointer break-words" onclick="openEdit('${task.id}')">${escapeHtml(task.text)}</p>
+                                <div class="flex flex-wrap items-center gap-2 mt-1">
+                                    ${dateStr} ${subStr} ${labelStr}
+                                </div>
+                            </div>
+                            <div class="task-actions flex items-center gap-1 shrink-0">
+                                <button class="text-gray-400 hover:text-indigo-500 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" onclick="openEdit('${task.id}')" title="Edit">
+                                    <i class="fas fa-pen text-sm"></i>
+                                </button>
+                                <button class="text-gray-400 hover:text-red-500 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" onclick="confirmDelete('${task.id}')" title="Delete">
+                                    <i class="fas fa-trash-alt text-sm"></i>
+                                </button>
+                            </div>
+                        </div>
+                        ${subCount > 0 ? `
+                        <div id="sub-${task.id}" class="hidden ml-8 mt-2 space-y-1 border-l-2 border-gray-200 dark:border-gray-700 pl-3">
+                            ${task.subtasks.map((st, i) => `
+                                <div class="subtask-item flex items-start gap-2 text-sm text-gray-600 dark:text-gray-300 group" 
+                                     draggable="${li.draggable}" data-type="subtask" data-parent-id="${task.id}" data-sub-index="${i}">
+                                    ${li.draggable ? `<i class="fas fa-grip-vertical text-gray-300 hover:text-indigo-400 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity text-xs mt-1" title="Drag to extract or move"></i>` : ''}
+                                    <input type="checkbox" class="rounded border-gray-300 text-indigo-600 cursor-pointer mt-1" ${st.completed ? 'checked' : ''} onchange="toggleSubtask('${task.id}', ${i}, this.checked)">
+                                    <span class="flex-1 ${st.completed ? 'line-through opacity-50' : ''} break-words mt-0.5">${escapeHtml(st.text)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        ` : ''}
+                    `;
+                    
+                    if(li.draggable) {
+                        li.addEventListener('dragstart', handleDragStart);
+                        li.addEventListener('dragover', handleDragOver);
+                        li.addEventListener('dragleave', handleDragLeave);
+                        li.addEventListener('drop', handleDrop);
+                        li.addEventListener('dragend', handleDragEnd);
+                        
+                        setTimeout(() => {
+                            const subEls = li.querySelectorAll('.subtask-item');
+                            subEls.forEach(sub => {
+                                sub.addEventListener('dragstart', handleDragStart);
+                                sub.addEventListener('dragend', handleDragEnd);
+                            });
+                        }, 0);
+                    }
+                    DOM.taskList.appendChild(li);
+                });
+            }
+        }
+
+        // Global Actions
+        window.toggleTask = (id, isCompleted) => {
+            const task = localTasks.find(t => t.id === id);
+            if(task) {
+                task.completed = isCompleted;
+                task.completedAt = isCompleted ? Date.now() : null;
+                saveData();
+                renderTasks();
+                showToast(isCompleted ? "Task completed!" : "Task marked as active", "success");
+            }
+        };
+        
+        let taskToDelete = null;
+        const confirmModal = document.getElementById('confirm-modal');
+        const confirmContent = document.getElementById('confirm-modal-content');
+        
+        window.confirmDelete = (id) => {
+            taskToDelete = id;
+            confirmModal.classList.remove('hidden');
+            confirmModal.classList.add('flex');
+            setTimeout(() => {
+                confirmModal.classList.remove('opacity-0');
+                confirmContent.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        };
+
+        document.getElementById('cancel-delete-btn').onclick = () => {
+            confirmModal.classList.add('opacity-0');
+            confirmContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => { confirmModal.classList.add('hidden'); confirmModal.classList.remove('flex'); taskToDelete = null; }, 300);
+        };
+
+        document.getElementById('confirm-delete-btn').onclick = () => {
+            if(!taskToDelete) return;
+            localTasks = localTasks.filter(t => t.id !== taskToDelete);
+            saveData();
+            renderTasks();
+            showToast("Task deleted", "info");
+            document.getElementById('cancel-delete-btn').click();
+        };
+
+        window.toggleSubtask = (taskId, subIndex, isCompleted) => {
+            const task = localTasks.find(t => t.id === taskId);
+            if(task && task.subtasks) {
+                task.subtasks[subIndex].completed = isCompleted;
+                saveData();
+                renderTasks();
+            }
+        };
+
+        window.openEdit = (id) => {
+            const task = localTasks.find(t => t.id === id);
+            if(!task) return;
+            editingTask = JSON.parse(JSON.stringify(task)); 
+            if(!editingTask.subtasks) editingTask.subtasks = [];
+            
+            DOM.editInput.value = editingTask.text || '';
+            
+            if (editingTask.dueDate) {
+                const d = new Date(editingTask.dueDate);
+                DOM.editDate.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            } else {
+                DOM.editDate.value = '';
+            }
+            
+            DOM.editLabel.value = editingTask.label || '';
+            
+            const p = DOM.editColorPicker;
+            p.innerHTML = '';
+            p.className = "flex flex-wrap gap-2 p-1 pt-2"; // Prevent UI cutoff
+            PALETTE.forEach(c => {
+                const btn = document.createElement('div');
+                btn.className = `w-6 h-6 rounded-full cursor-pointer transition-all duration-200 ${c === (editingTask.color || PALETTE[0]) ? 'ring-4 ring-offset-2 ring-indigo-500 dark:ring-indigo-400 scale-125 shadow-md' : 'hover:scale-110'}`;
+                btn.style.backgroundColor = c;
+                btn.onclick = () => {
+                    editingTask.color = c;
+                    Array.from(p.children).forEach(el => el.className = `w-6 h-6 rounded-full cursor-pointer transition-all duration-200 hover:scale-110`);
+                    btn.className = `w-6 h-6 rounded-full cursor-pointer transition-all duration-200 ring-4 ring-offset-2 ring-indigo-500 dark:ring-indigo-400 scale-125 shadow-md`;
+                };
+                p.appendChild(btn);
+            });
+
+            renderEditSubtasks();
+            
+            DOM.editModal.classList.remove('hidden');
+            DOM.editModal.classList.add('flex');
+            setTimeout(() => {
+                DOM.editModal.classList.remove('opacity-0');
+                DOM.editContent.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        };
+
+        function renderEditSubtasks() {
+            DOM.editSubtasks.innerHTML = '';
+            editingTask.subtasks.forEach((st, i) => {
+                const li = document.createElement('li');
+                li.className = "flex items-start gap-2 bg-gray-50 dark:bg-gray-700/50 p-2 rounded-lg";
+                li.innerHTML = `
+                    <input type="checkbox" ${st.completed ? 'checked' : ''} onchange="editingTask.subtasks[${i}].completed = this.checked" class="rounded mt-1 text-indigo-500">
+                    <input type="text" value="${escapeHtml(st.text)}" onchange="editingTask.subtasks[${i}].text = this.value" class="flex-1 bg-transparent border-none outline-none text-sm dark:text-white">
+                    <button type="button" class="text-red-400 hover:text-red-600 p-1 mt-0.5" onclick="removeSubtask(${i})"><i class="fas fa-times"></i></button>
+                `;
+                DOM.editSubtasks.appendChild(li);
+            });
+        }
+        
+        window.removeSubtask = (i) => { editingTask.subtasks.splice(i, 1); renderEditSubtasks(); };
+
+        // Event Listeners setup
+        function setupEventListeners() {
+            const getTodayStr = () => {
+                const tzoffset = (new Date()).getTimezoneOffset() * 60000;
+                return (new Date(Date.now() - tzoffset)).toISOString().slice(0, 10);
+            };
+            DOM.addDate.value = getTodayStr();
+
+            DOM.addForm.onsubmit = (e) => {
+                e.preventDefault();
+                const txt = DOM.addInput.value.trim();
+                const lbl = DOM.addLabel.value;
+                
+                let dt = null;
+                if (DOM.addDate.value) {
+                    const [y, m, d] = DOM.addDate.value.split('-');
+                    dt = new Date(y, m - 1, d).getTime();
+                }
+                
+                if(!txt) return;
+
+                const maxOrder = localTasks.length > 0 ? Math.max(...localTasks.map(t => t.order || 0)) : 0;
+
+                localTasks.push({
+                    id: generateId(), text: txt, label: lbl, color: selectedAddColor, dueDate: dt,
+                    completed: false, createdAt: Date.now(), order: maxOrder + 1000, subtasks: []
+                });
+                
+                saveData();
+                renderTasks();
+                
+                DOM.addInput.value = ''; DOM.addDate.value = getTodayStr(); DOM.addLabel.value = '';
+                showToast("Task added successfully!");
+            };
+
+            const checkLabelDropdown = (e) => {
+                if(e.target.value === '__add_new__') {
+                    e.target.value = '';
+                    DOM.newLabelInput.value = '';
+                    DOM.labelModal.classList.remove('hidden');
+                    DOM.labelModal.classList.add('flex');
+                    setTimeout(() => {
+                        DOM.labelModal.classList.remove('opacity-0');
+                        DOM.labelContent.classList.remove('scale-95', 'opacity-0');
+                    }, 10);
+                    DOM.newLabelInput.focus();
+                }
+            };
+            DOM.addLabel.onchange = checkLabelDropdown;
+            DOM.editLabel.onchange = checkLabelDropdown;
+
+            DOM.cancelLabelBtn.onclick = hideLabelModal;
+            DOM.saveLabelBtn.onclick = () => {
+                const name = DOM.newLabelInput.value.trim();
+                if(!name || localLabels.some(l => l.name.toLowerCase() === name.toLowerCase())) { hideLabelModal(); return; }
+                
+                localLabels.push({ name, createdAt: Date.now() });
+                saveData();
+                updateLabelDropdowns();
+                hideLabelModal();
+            };
+
+            // Search, Sort & Filter
+            DOM.searchInput.oninput = (e) => { searchQuery = e.target.value; renderTasks(); };
+            DOM.sortSelect.onchange = (e) => { currentSort = e.target.value; renderTasks(); };
+            DOM.labelFilter.onchange = (e) => { currentLabelFilter = e.target.value; renderTasks(); };
+
+            // Edit Modal logic
+            DOM.cancelEditBtn.onclick = hideEditModal;
+            DOM.closeEditBtn.onclick = hideEditModal;
+            
+            DOM.addSubtaskBtn.onclick = () => {
+                const val = DOM.newSubtaskInput.value.trim();
+                if(val) {
+                    editingTask.subtasks.push({ text: val, completed: false, id: 'sub_'+Date.now() });
+                    DOM.newSubtaskInput.value = '';
+                    renderEditSubtasks();
+                }
+            };
+            DOM.newSubtaskInput.onkeypress = (e) => { if(e.key==='Enter') { e.preventDefault(); DOM.addSubtaskBtn.click(); }};
+            
+            DOM.saveEditBtn.onclick = () => {
+                if(!editingTask) return;
+                editingTask.text = DOM.editInput.value.trim();
+                editingTask.label = DOM.editLabel.value;
+                
+                if (DOM.editDate.value) {
+                    const [y, m, d] = DOM.editDate.value.split('-');
+                    editingTask.dueDate = new Date(y, m - 1, d).getTime();
+                } else {
+                    editingTask.dueDate = null;
+                }
+                
+                if(!editingTask.text) return;
+                
+                const index = localTasks.findIndex(t => t.id === editingTask.id);
+                if (index !== -1) {
+                    localTasks[index] = editingTask;
+                    saveData();
+                    renderTasks();
+                    hideEditModal();
+                    showToast("Task updated", "success");
+                }
+            };
+
+            // Export / Import Logic
+            DOM.exportBtn.onclick = () => {
+                const dataStr = JSON.stringify({ tasks: localTasks, labels: localLabels }, null, 2);
+                const blob = new Blob([dataStr], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `todo_backup_${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast("Backup exported successfully!");
+            };
+
+            DOM.importBtn.onclick = () => {
+                DOM.fileImport.click();
+            };
+
+            DOM.fileImport.onchange = (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        if (data.tasks && data.labels) {
+                            localTasks = data.tasks;
+                            localLabels = data.labels;
+                            saveData();
+                            updateLabelDropdowns();
+                            renderTasks();
+                            showToast("Backup imported successfully!");
+                        } else {
+                            showToast("Invalid backup file structure", "error");
+                        }
+                    } catch(err) {
+                        showToast("Error reading file", "error");
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = ''; // reset
+            };
+        }
+
+        function hideLabelModal() {
+            DOM.labelModal.classList.add('opacity-0');
+            DOM.labelContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => { DOM.labelModal.classList.add('hidden'); DOM.labelModal.classList.remove('flex'); }, 300);
+        }
+        function hideEditModal() {
+            DOM.editModal.classList.add('opacity-0');
+            DOM.editContent.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => { DOM.editModal.classList.add('hidden'); DOM.editModal.classList.remove('flex'); editingTask = null; }, 300);
+        }
+
+        // Drag & Drop Logic
+        let draggedEl = null;
+        
+        function handleDragStart(e) { 
+            e.stopPropagation(); 
+            draggedEl = this; 
+            e.dataTransfer.effectAllowed = 'move'; 
+            this.classList.add('dragging'); 
+        }
+        
+        function handleDragOver(e) { 
+            e.preventDefault(); 
+            e.stopPropagation();
+            if(!draggedEl || draggedEl === this) return false;
+            
+            this.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-middle');
+            e.dataTransfer.dropEffect = 'move'; 
+            
+            const rect = this.getBoundingClientRect();
+            const relY = e.clientY - rect.top;
+            
+            if (relY < rect.height * 0.25) {
+                this.classList.add('drag-over-top');
+                this.dropPosition = 'before';
+            } else if (relY > rect.height * 0.75) {
+                this.classList.add('drag-over-bottom');
+                this.dropPosition = 'after';
+            } else {
+                this.classList.add('drag-over-middle');
+                this.dropPosition = 'inside';
+            }
+            return false; 
+        }
+        
+        function handleDragLeave(e) { 
+            this.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-middle'); 
+        }
+        
+        function handleDragEnd(e) { 
+            document.querySelectorAll('.task-item, .subtask-item').forEach(i => {
+                i.classList.remove('dragging', 'drag-over-top', 'drag-over-bottom', 'drag-over-middle');
+            });
+            draggedEl = null;
+        }
+        
+        function handleDrop(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            this.classList.remove('drag-over-top', 'drag-over-bottom', 'drag-over-middle');
+            
+            if (!draggedEl || draggedEl === this) return false;
+            
+            const dropPos = this.dropPosition; 
+            const targetId = this.dataset.id;
+            const targetTask = localTasks.find(t => t.id === targetId);
+            const draggedType = draggedEl.dataset.type;
+            
+            if (draggedType === 'task') {
+                const draggedId = draggedEl.dataset.id;
+                
+                if (dropPos === 'inside') {
+                    const draggedTask = localTasks.find(t => t.id === draggedId);
+                    const newSubtask = { id: 'sub_' + Date.now(), text: draggedTask.text, completed: draggedTask.completed };
+                    
+                    targetTask.subtasks = targetTask.subtasks || [];
+                    targetTask.subtasks.push(newSubtask);
+                    localTasks = localTasks.filter(t => t.id !== draggedId);
+                    
+                    saveData();
+                    renderTasks();
+                    showToast("Task converted to subtask", "info");
+                } else {
+                    reorderMainTask(draggedId, targetId, dropPos);
+                }
+            } else if (draggedType === 'subtask') {
+                const parentId = draggedEl.dataset.parentId;
+                const subIndex = parseInt(draggedEl.dataset.subIndex);
+                const parentTask = localTasks.find(t => t.id === parentId);
+                const subtaskData = parentTask.subtasks[subIndex];
+                
+                if (dropPos === 'inside') {
+                    if (parentId === targetId) return false; 
+                    
+                    targetTask.subtasks = targetTask.subtasks || [];
+                    targetTask.subtasks.push(subtaskData);
+                    parentTask.subtasks.splice(subIndex, 1);
+                    
+                    saveData();
+                    renderTasks();
+                    showToast("Subtask moved", "info");
+                } else {
+                    parentTask.subtasks.splice(subIndex, 1);
+                    const sortedTasks = localTasks.filter(t => !t.completed).sort((a,b) => (a.order||0) - (b.order||0));
+                    const targetIndex = sortedTasks.findIndex(t => t.id === targetId);
+                    
+                    let newOrder = 0;
+                    if (dropPos === 'before') {
+                        if (targetIndex <= 0) newOrder = (sortedTasks[0]?.order || 0) - 1000;
+                        else newOrder = ((sortedTasks[targetIndex - 1].order || 0) + (sortedTasks[targetIndex].order || 0)) / 2;
+                    } else {
+                        if (targetIndex >= sortedTasks.length - 1) newOrder = (sortedTasks[targetIndex].order || 0) + 1000;
+                        else newOrder = ((sortedTasks[targetIndex].order || 0) + (sortedTasks[targetIndex + 1].order || 0)) / 2;
+                    }
+                    
+                    localTasks.push({
+                        id: generateId(),
+                        text: subtaskData.text,
+                        completed: subtaskData.completed,
+                        createdAt: Date.now(),
+                        order: newOrder,
+                        subtasks: [],
+                        color: parentTask.color || '#94a3b8',
+                        label: parentTask.label || ''
+                    });
+                    
+                    saveData();
+                    renderTasks();
+                    showToast("Subtask extracted to main task", "info");
+                }
+            }
+            return false;
+        }
+
+        function reorderMainTask(draggedId, targetId, dropPos) {
+            const sortedTasks = localTasks.filter(t => !t.completed).sort((a,b) => (a.order||0) - (b.order||0)); 
+            const targetIndex = sortedTasks.findIndex(t => t.id === targetId);
+            
+            let newOrder;
+            if (dropPos === 'before') {
+                if (targetIndex <= 0) newOrder = (sortedTasks[0]?.order || 0) - 1000;
+                else newOrder = ((sortedTasks[targetIndex - 1].order || 0) + (sortedTasks[targetIndex].order || 0)) / 2;
+            } else {
+                if (targetIndex >= sortedTasks.length - 1) newOrder = (sortedTasks[targetIndex].order || 0) + 1000;
+                else newOrder = ((sortedTasks[targetIndex].order || 0) + (sortedTasks[targetIndex + 1].order || 0)) / 2;
+            }
+
+            const task = localTasks.find(t => t.id === draggedId);
+            if(task) {
+                task.order = newOrder;
+                saveData();
+                renderTasks();
+            }
+        }
+
+        function escapeHtml(unsafe) { return (unsafe||"").toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"); }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let icon = 'fa-check-circle';
+            let color = 'text-green-500';
+            if(type === 'error') { icon = 'fa-exclamation-circle'; color = 'text-red-500'; }
+            else if(type === 'info') { icon = 'fa-info-circle'; color = 'text-blue-500'; }
+            
+            toast.className = `toast-enter glass-panel bg-white dark:bg-gray-800 p-4 rounded-xl shadow-lg flex items-center gap-3 border-l-4 ${type==='error'?'border-red-500':type==='info'?'border-blue-500':'border-green-500'} pointer-events-auto`;
+            toast.innerHTML = `<i class="fas ${icon} ${color} text-lg"></i><span class="text-sm font-medium text-gray-800 dark:text-white">${escapeHtml(message)}</span>`;
+            
+            container.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.classList.remove('toast-enter');
+                toast.classList.add('toast-enter-active');
+            });
+            
+            setTimeout(() => {
+                toast.classList.remove('toast-enter-active');
+                toast.classList.add('toast-exit-active');
+                toast.addEventListener('transitionend', () => toast.remove());
+            }, 3000);
+        }
+
+        // Boot
+        start();
+    </script>
+</body>
+</html>
